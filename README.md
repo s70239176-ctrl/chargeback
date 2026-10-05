@@ -24,8 +24,27 @@ GenLayer call and the spend cannot finalize around a pending challenge and no ch
 
 ## Live demo
 
-Not yet published. The contract below is live on Studionet and the whole demo runs against it from
-`npm run dev` (see [Run it](#run-it)). Publishing the app to Vercel is two commands, listed there.
+The contract below is live on Studionet. Deploy the `frontend` folder to Vercel (settings in
+[Run it](#run-it)) and put its address here; the whole demo runs against that contract from
+`npm run dev` in the meantime.
+
+## The console
+
+`/` is a public landing page driven by live contract data. `/console` is the product:
+
+| Screen | What it answers |
+|---|---|
+| Overview | How much is under watch, what is at risk, and what to do next. Includes the **Recovery Radar** |
+| Opportunities / Active disputes / Won / Lost | The same spends, sliced by where they are; searchable, filterable, exportable to CSV |
+| Spend detail | Timeline, evidence (expandable, with sources), the panel's analysis, the ledger, and every action |
+| AI Analysis / Risk Signals / Evidence | Every ruling; rule-based checks over contract state; every cited page |
+| Transactions / Analytics | Every payout and why; charts that each answer one question |
+| Settings / Activity / Help | Demo accounts, network, evidence host; session transactions; the flow and shortcuts |
+
+Press **⌘K / Ctrl K** anywhere to search spends, rulings, pages and actions. On a phone the console
+becomes a bottom-nav app with its own focused overview. Nothing on any screen is mocked: if a number
+cannot be computed from a spend, a challenge or a ruling, it is not shown (so there is no "recovery
+confidence" percentage, only the panel's label, reason and verified quote).
 
 ## Contract details
 
@@ -46,8 +65,9 @@ Studio rate-limits its RPC at **30 requests per minute per client**. The app rea
 
 - **Contract:** Python Intelligent Contract on GenVM (`gl.nondet.web.get`, `gl.nondet.exec_prompt`,
   `gl.eq_principle.prompt_comparative`).
-- **Frontend:** Next.js 15, React 19, TypeScript (strict), TanStack Query, plain CSS modules,
-  `genlayer-js`. No backend and no database: the browser talks to the contract.
+- **Frontend:** Next.js 15, React 19, TypeScript (strict), TanStack Query, plain CSS modules over a
+  token file (`frontend/styles/tokens.css`), Geist type, hand-drawn SVG charts, `genlayer-js`. No
+  backend and no database: the browser talks to the contract.
 - **Evidence fixtures:** served by the same Next app at `/fixtures/*`.
 
 ## How it works
@@ -100,7 +120,7 @@ Local GenVM (Studio on your machine, chain `61127`): set the RPC and chain id in
 ```bash
 pip install -r requirements-test.txt
 PYTHONPATH=scripts python -m pytest tests/direct -p windows_direct_plugin   # on Linux/macOS: python -m pytest tests/direct
-(cd frontend && npm test && npx tsc --noEmit && npm run build)
+(cd frontend && npm test && npx tsc --noEmit && npm run build)   # 13 unit tests
 genvm-lint check contracts/chargeback.py
 ```
 
@@ -116,13 +136,14 @@ public pages so the consensus path can still be exercised.
 
 ## The 5-step demo
 
-The UI walks the same path, and the "Next" bar under the header always says what to click.
+The console walks the same path; the Overview's "Next best actions" always ranks what to do.
 
-1. **Seed** the three demo accounts (free mock USDC). **Payer opens 100 USDC.** Mandate: *"Pay the
+1. **Seed** the three demo accounts (free mock USDC). Press **+** (or ⌘K, "Open a new spend"). **Payer
+   opens 100 USDC.** Mandate: *"Pay the
    agent only if the page states that flight BA283 on 2026-09-12 was delayed by more than 3
    hours."* Evidence: `/fixtures/ba283`, which says **41 minutes**.
-2. **Stranger challenges:** *"The page records a 41 minute delay, which does not meet the mandate."*
-   Try it as Payer or Recipient first and watch the contract refuse.
+2. **Stranger challenges** on the spend's page: *"The page records a 41 minute delay, which does not
+   meet the mandate."* Try it as Payer or Recipient first (sidebar) and watch the contract refuse.
 3. **Convene the panel.** The validators rule `MISMATCH`. The 100 USDC returns to the payer, the
    stranger receives both bonds, and Case 1 is written.
 4. **Second spend, same mandate**, evidence `/fixtures/ba283-delayed` (**4 hours 12 minutes**). The

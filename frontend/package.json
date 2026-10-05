@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.1",
+    "geist": "^1.7.2",
     "genlayer-js": "^1.1.8",
     "next": "^15.5.27",
     "react": "^19.3.0",

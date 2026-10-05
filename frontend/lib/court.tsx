@@ -18,12 +18,16 @@ export interface TxEntry {
   phase: TxPhase | "failed";
   detail?: string;
   error?: string;
+  at: number;
 }
 
 export type RunResult = { ok: true; hash: Hash } | { ok: false; error: string };
 
 interface CourtValue {
-  api: ChainApi;
+  /** False when the build has no contract address; every view then shows its empty state. */
+  configured: boolean;
+  /** True once this browser's demo keys exist (they are minted client-side after hydration). */
+  accountsReady: boolean;
   addresses: Record<Role, string>;
   active: Role;
   setActive: (role: Role) => void;
@@ -41,35 +45,53 @@ interface CourtValue {
   cases: CaseRecord[] | undefined;
   balances: Record<Role, number | undefined>;
   dataError: string | null;
+  loading: boolean;
   seeded: boolean;
   seededRoles: Record<Role, boolean>;
   /** True when one of this browser's three demo accounts is a party to the spend. */
   isMine: (spend: Spend) => boolean;
 }
 
-const Ctx = createContext<CourtValue | null>(null);
+const BLANK: Record<Role, string> = { payer: "", recipient: "", stranger: "" };
+
+const OFFLINE: CourtValue = {
+  configured: false,
+  accountsReady: false,
+  addresses: BLANK,
+  active: "stranger",
+  setActive: () => undefined,
+  run: async () => ({ ok: false, error: "This build has no contract address (NEXT_PUBLIC_CHARGEBACK_ADDRESS)." }),
+  txs: [],
+  busy: false,
+  dismissTx: () => undefined,
+  resetAccounts: () => undefined,
+  chainNow: 0,
+  chainReady: false,
+  config: undefined,
+  stats: undefined,
+  spends: undefined,
+  cases: undefined,
+  balances: { payer: undefined, recipient: undefined, stranger: undefined },
+  dataError: null,
+  loading: false,
+  seeded: false,
+  seededRoles: { payer: false, recipient: false, stranger: false },
+  isMine: () => false,
+};
+
+const Ctx = createContext<CourtValue>(OFFLINE);
 
 export function useCourt(): CourtValue {
-  const v = useContext(Ctx);
-  if (!v) throw new Error("useCourt must be used inside <CourtProvider>");
-  return v;
+  return useContext(Ctx);
 }
 
 export function CourtProvider({ children }: { children: ReactNode }) {
-  const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: 2, staleTime: 2000 } } }));
+  const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 2000 } } }));
   return (
     <QueryClientProvider client={client}>
-      <Inner>{children}</Inner>
+      {chainConfig ? <Live>{children}</Live> : <Ctx.Provider value={OFFLINE}>{children}</Ctx.Provider>}
     </QueryClientProvider>
   );
-}
-
-function Inner({ children }: { children: ReactNode }) {
-  const [keys, setKeys] = useState<Keys | null>(null);
-  useEffect(() => setKeys(loadOrCreateKeys()), []);
-  if (!chainConfig) return <>{children}</>;
-  if (!keys) return null;
-  return <Live keys={keys} onReset={() => setKeys(resetKeys())}>{children}</Live>;
 }
 
 /** Seconds on the chain's clock: read once a minute, interpolated locally in between. */
@@ -89,17 +111,18 @@ function useChainNow(api: ChainApi) {
   return { now: query.data.chain + Math.floor((Date.now() - query.data.local) / 1000), ready: true };
 }
 
-function Live({ keys, onReset, children }: { keys: Keys; onReset: () => void; children: ReactNode }) {
+function Live({ children }: { children: ReactNode }) {
   const cfg = chainConfig;
   if (!cfg) throw new Error("unreachable: Live is only rendered with a chain config");
   const api = useMemo(() => createChainApi(cfg), [cfg]);
-  const addresses = useMemo(() => addressesOf(keys), [keys]);
-  const signers = useMemo<Record<Role, Signer>>(
-    () => ({
-      payer: api.signer(keys.payer),
-      recipient: api.signer(keys.recipient),
-      stranger: api.signer(keys.stranger),
-    }),
+  const [keys, setKeys] = useState<Keys | null>(null);
+  useEffect(() => setKeys(loadOrCreateKeys()), []);
+  const addresses = useMemo(() => (keys ? addressesOf(keys) : BLANK), [keys]);
+  const signers = useMemo<Record<Role, Signer> | null>(
+    () =>
+      keys
+        ? { payer: api.signer(keys.payer), recipient: api.signer(keys.recipient), stranger: api.signer(keys.stranger) }
+        : null,
     [api, keys],
   );
   const qc = useQueryClient();
@@ -113,7 +136,7 @@ function Live({ keys, onReset, children }: { keys: Keys; onReset: () => void; ch
 
   // One request returns everything on screen. The hosted RPC allows ~30 requests a minute, so the
   // snapshot is polled slowly and not at all while a transaction is being followed (that already polls).
-  const wanted = useMemo(() => ROLES.map((r) => addresses[r]), [addresses]);
+  const wanted = useMemo(() => (keys ? ROLES.map((r) => addresses[r]) : []), [keys, addresses]);
   const snapshot = useQuery({
     queryKey: ["snapshot", ...wanted],
     queryFn: () => api.reads.snapshot(wanted),
@@ -122,7 +145,8 @@ function Live({ keys, onReset, children }: { keys: Keys; onReset: () => void; ch
     retry: 1,
   });
   const snap = snapshot.data;
-  const balanceOf = (role: Role): number | undefined => (snap ? (snap.balances[addresses[role].toLowerCase()] ?? 0) : undefined);
+  const balanceOf = (role: Role): number | undefined =>
+    snap && keys ? (snap.balances[addresses[role].toLowerCase()] ?? 0) : undefined;
   const balances: Record<Role, number | undefined> = {
     payer: balanceOf("payer"),
     recipient: balanceOf("recipient"),
@@ -135,28 +159,27 @@ function Live({ keys, onReset, children }: { keys: Keys; onReset: () => void; ch
 
   const run = useCallback<CourtValue["run"]>(
     async (label, role, fn, args) => {
+      if (!signers) return { ok: false, error: "Demo accounts are still being created. Try again in a moment." };
       const id = nextId.current++;
-      setTxs((list) => [...list.slice(-5), { id, label, role, fn, phase: "signing" }]);
+      setTxs((list) => [...list.slice(-19), { id, label, role, fn, phase: "signing", at: Date.now() }]);
       inFlight.current += 1;
       setBusy(true);
+      const settle = () => {
+        inFlight.current -= 1;
+        if (inFlight.current === 0) setBusy(false);
+      };
       try {
         const hash = await signers[role].send(fn, args, {
           onHash: (h) => patch(id, { hash: h }),
-          onPhase: (phase, detail) => {
-            patch(id, { phase, detail });
-            // A finished transaction has done its job on screen; failures stay until dismissed.
-            if (phase === "accepted") setTimeout(() => setTxs((list) => list.filter((t) => t.id !== id)), 9000);
-          },
+          onPhase: (phase, detail) => patch(id, { phase, detail }),
         });
-        inFlight.current -= 1;
-        if (inFlight.current === 0) setBusy(false);
+        settle();
         await qc.invalidateQueries({ queryKey: ["snapshot"] });
         return { ok: true, hash };
       } catch (e) {
         const error = describeError(e);
         patch(id, { phase: "failed", error });
-        inFlight.current -= 1;
-        if (inFlight.current === 0) setBusy(false);
+        settle();
         await qc.invalidateQueries({ queryKey: ["snapshot"] });
         return { ok: false, error };
       }
@@ -168,22 +191,23 @@ function Live({ keys, onReset, children }: { keys: Keys; onReset: () => void; ch
 
   const resetAccounts = useCallback(() => {
     setTxs([]);
-    onReset();
-  }, [onReset]);
+    setKeys(resetKeys());
+  }, []);
 
   const seededRoles: Record<Role, boolean> = {
     payer: (snap?.seeded[addresses.payer.toLowerCase()] ?? 0) > 0,
     recipient: (snap?.seeded[addresses.recipient.toLowerCase()] ?? 0) > 0,
     stranger: (snap?.seeded[addresses.stranger.toLowerCase()] ?? 0) > 0,
   };
-  const mine = new Set(ROLES.map((r) => addresses[r].toLowerCase()));
+  const mine = new Set(keys ? ROLES.map((r) => addresses[r].toLowerCase()) : []);
   const isMine = (s: Spend) =>
     mine.has(s.payer.toLowerCase()) ||
     mine.has(s.recipient.toLowerCase()) ||
     (s.challenge !== null && mine.has(s.challenge.challenger.toLowerCase()));
 
   const value: CourtValue = {
-    api,
+    configured: true,
+    accountsReady: keys !== null,
     addresses,
     active,
     setActive,
@@ -200,6 +224,7 @@ function Live({ keys, onReset, children }: { keys: Keys; onReset: () => void; ch
     cases: snap?.cases,
     balances,
     dataError: snapshot.error ? describeError(snapshot.error) : null,
+    loading: snapshot.isLoading,
     seededRoles,
     seeded: ROLES.every((r) => seededRoles[r]),
     isMine,

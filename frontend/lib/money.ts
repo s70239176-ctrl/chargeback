@@ -23,3 +23,19 @@ export function parseUsdc(text: string): number | null {
 export function shortAddr(addr: string): string {
   return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
 }
+
+/** Whole dollars unless cents matter: $284,920 not $284,920.00. Mock USDC is shown as $. */
+export function usd(micros: number): string {
+  const whole = Math.trunc(micros / MICROS);
+  const cents = Math.round((Math.abs(micros % MICROS) / MICROS) * 100);
+  const w = whole.toLocaleString("en-US");
+  return cents === 0 ? `$${w}` : `$${w}.${String(cents).padStart(2, "0")}`;
+}
+
+/** $42K, $1.3M: for chart labels where space is tight. */
+export function usdCompact(micros: number): string {
+  const d = micros / MICROS;
+  if (d >= 1_000_000) return `$${(d / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (d >= 1_000) return `$${(d / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return `$${Math.round(d)}`;
+}

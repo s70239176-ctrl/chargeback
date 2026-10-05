@@ -113,3 +113,18 @@ the payer chose the URL.
 - Evidence is a URL the validators fetch. A page that changes between the ruling and an appeal is
   re-read, by design.
 - Mock USDC. No token, bridge or custody.
+
+## The console's design rules
+
+- **One idea:** money, risk, evidence, action, recovery. Each screen answers one of them.
+- **Colour means something.** The default UI is monochrome. Green is money recovered (a veto),
+  red is risk, amber is a deadline, purple is the validator panel, blue is system state.
+- **Honest numbers.** Every figure is derived in `frontend/lib/derive.ts` from the contract's
+  spends, challenges and cases. There is no mock data and no invented confidence score; the
+  Recovery Radar places a spend by how close it is to a decision (time left) and sizes it by amount.
+- **Tokens, not values.** Colours, spacing (4px base), radii, type, motion and z-index live in
+  `frontend/styles/tokens.css`; components use the variables.
+- **Motion with a reason.** 150 ms for controls, about 250 ms for panels, about 400 ms for charts;
+  numbers count up; everything respects `prefers-reduced-motion`.
+- **Mobile is its own layout:** bottom navigation, a two-card overview (Urgent, Next opportunity),
+  and tables that become stacked cards.

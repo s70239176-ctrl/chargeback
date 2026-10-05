@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { activeDeadline, countdown, formatClock } from "./clock.ts";
 import { decodeRevertPayload, describeError, revertFromReceipt, revertFromRpcError, RevertError } from "./errors.ts";
 import { fixtureHtml } from "./fixtures.ts";
-import { nextStep } from "./guide.ts";
+import { fuzzy, nextActions, riskBuckets, riskSignals, search, summarize, toCsv, trend, vetoRate } from "./derive.ts";
 import { bondFor, formatUsdc, MICROS, parseUsdc } from "./money.ts";
 import { toSpend } from "./parse.ts";
 import type { Spend } from "./types.ts";
@@ -61,27 +61,78 @@ test("countdown counts whole ticks on the chain clock", () => {
 });
 
 const BASE: Spend = {
-  id: 1, payer: "0xa", recipient: "0xb", amount: 100 * MICROS, bond: 10 * MICROS, mandate: "m", evidenceUrl: "u",
+  id: 1, payer: "0xa", recipient: "0xb", amount: 100 * MICROS, bond: 10 * MICROS, mandate: "m", evidenceUrl: "https://x.example.org/a",
   trace: "t", openedAt: 0, challengeDeadline: 100, appealDeadline: 0, status: "open", activeChallengeId: -1,
   settlement: [], challenge: null,
 };
-const ADDR = { payer: "0xa", recipient: "0xb", stranger: "0xc" } as const;
+const ME = { payer: "0xa", recipient: "0xb", stranger: "0xc" } as const;
+const CH = { id: 1, spendId: 1, challenger: "0xc", bond: 10 * MICROS, claim: "c", counterUrl: "", citedCaseId: -1, status: "pending" as const,
+  verdictLabel: "" as const, verdictReason: "", evidenceQuote: "", caseId: -1, appealBond: 0, appeals: 0 };
 
-test("the next-step guide follows on-chain state", () => {
-  const g = (over: Partial<Parameters<typeof nextStep>[0]>) =>
-    nextStep({ seeded: true, spends: [], active: "stranger", chainNow: 10, addresses: ADDR, ...over });
-  assert.match(g({ seeded: false }), /Seed demo accounts/);
-  assert.match(g({}), /Open a spend/);
-  assert.match(g({ spends: [BASE], active: "payer" }), /Switch to Stranger/);
-  assert.match(g({ spends: [BASE] }), /Fund a second look/);
-  assert.match(g({ spends: [BASE], chainNow: 100 }), /Finalize/);
-  const challenged: Spend = {
-    ...BASE, status: "challenged",
-    challenge: { id: 1, spendId: 1, challenger: "0xc", bond: 1, claim: "c", counterUrl: "", citedCaseId: -1, status: "pending",
-      verdictLabel: "", verdictReason: "", evidenceQuote: "", caseId: -1, appealBond: 0, appeals: 0 },
-  };
-  assert.match(g({ spends: [challenged] }), /Convene the panel/);
-  assert.match(g({ spends: [{ ...BASE, status: "final" }] }), /settled/);
+test("money is summarised from contract state, nothing invented", () => {
+  const spends: Spend[] = [
+    BASE,
+    { ...BASE, id: 2, status: "reverted", challenge: { ...CH, status: "upheld", verdictLabel: "MISMATCH" } },
+    { ...BASE, id: 3, status: "final" },
+    { ...BASE, id: 4, status: "challenged", challenge: CH },
+  ];
+  const m = summarize(spends);
+  assert.deepEqual(m, { underWatch: 200 * MICROS, challenged: 200 * MICROS, recovered: 100 * MICROS, released: 100 * MICROS });
+  assert.equal(vetoRate(spends), 1);
+  assert.equal(vetoRate([BASE]), null);
+});
+
+test("risk buckets separate closing, releasing and waiting money", () => {
+  const spends: Spend[] = [
+    { ...BASE, id: 1, challengeDeadline: 130 }, // 30s left, tick 60 -> closing
+    { ...BASE, id: 2, challengeDeadline: 90 }, // past -> releasing
+    { ...BASE, id: 3, challengeDeadline: 900 }, // fresh -> not at risk
+    { ...BASE, id: 4, status: "challenged", challenge: CH },
+    { ...BASE, id: 5, status: "cleared", appealDeadline: 500 },
+  ];
+  const r = riskBuckets(spends, 100, 60);
+  assert.equal(r.closing.count, 1);
+  assert.equal(r.releasing.count, 1);
+  assert.equal(r.awaitingPanel.count, 1);
+  assert.equal(r.appealable.count, 1);
+  assert.equal(r.total, 400 * MICROS);
+});
+
+test("next actions skip spends the viewer is a party to and rank by urgency", () => {
+  const spends: Spend[] = [
+    { ...BASE, id: 1, payer: "0xz", recipient: "0xy", challengeDeadline: 900, amount: 50 * MICROS },
+    { ...BASE, id: 2, payer: "0xz", recipient: "0xy", challengeDeadline: 130, amount: 20 * MICROS },
+    { ...BASE, id: 3, challengeDeadline: 900 }, // mine: cannot challenge it
+  ];
+  const a = nextActions(spends, ME, 100, 60);
+  assert.deepEqual(a.map((x) => x.spendId), [2, 1]);
+  assert.equal(a[0]?.priority, "HIGH");
+  assert.equal(a[0]?.payout, 20 * MICROS);
+  const waiting = nextActions([{ ...BASE, status: "challenged", challenge: CH }], ME, 100, 60);
+  assert.equal(waiting[0]?.cta, "Convene panel");
+});
+
+test("signals are rule-based and say what they saw", () => {
+  const s = riskSignals([{ ...BASE, challengeDeadline: 50 }], [], 100, 60);
+  assert.equal(s[0]?.severity, "high");
+  assert.match(s[0]?.title ?? "", /releasing unchallenged/);
+  assert.deepEqual(riskSignals([{ ...BASE, challengeDeadline: 900 }], [], 100, 60), []);
+});
+
+test("fuzzy search ranks substrings first and tolerates gaps", () => {
+  assert.ok(fuzzy("opp", "Opportunities") > fuzzy("otn", "Opportunities"));
+  assert.equal(fuzzy("zzz", "Opportunities"), -1);
+  const items = [{ kind: "Pages", label: "Analytics", hint: "" }, { kind: "Pages", label: "Active disputes", hint: "" }];
+  assert.equal(search(items, "anl")[0]?.label, "Analytics");
+  assert.equal(search(items, "").length, 2);
+});
+
+test("trend compares chain-time days; csv escapes", () => {
+  assert.equal(trend([], 1000), null);
+  assert.equal(trend([{ ...BASE, openedAt: 900 }], 1000)?.good, true);
+  const csv = toCsv([{ a: 1, b: 'say "hi", ok' }]);
+  assert.equal(csv.split(/\r?\n/).length, 2);
+  assert.ok(csv.endsWith('1,"say ""hi"", ok"'));
 });
 
 test("contract JSON is parsed strictly", () => {
