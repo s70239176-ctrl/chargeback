@@ -11,6 +11,7 @@ import { NextBestActions } from "../console/Insights.tsx";
 import { RecoveryRadar } from "../console/RecoveryRadar.tsx";
 import { Badge, LinkButton, Metric, Skeleton } from "../ui/index.tsx";
 import { Icon } from "../ui/Icon.tsx";
+import { Mark } from "../ui/Logo.tsx";
 import l from "./landing.module.css";
 
 const FLOW = [
@@ -35,7 +36,7 @@ export function Landing() {
     <div className={l.page}>
       <header className={l.nav}>
         <Link href="/" className={l.brand}>
-          <span className={l.mark} aria-hidden="true" />
+          <Mark size={28} />
           CHARGEBACK
         </Link>
         <nav className={l.navLinks} aria-label="Sections">

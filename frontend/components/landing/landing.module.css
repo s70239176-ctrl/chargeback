@@ -26,22 +26,6 @@
   font: 600 var(--fs-body) / 1 var(--font-sans);
   letter-spacing: 0.14em;
 }
-.mark {
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-2);
-  display: grid;
-  place-items: center;
-}
-.mark::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--positive);
-}
 .navLinks {
   display: flex;
   gap: var(--s-5);

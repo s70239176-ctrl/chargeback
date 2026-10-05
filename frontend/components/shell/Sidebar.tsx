@@ -7,6 +7,7 @@ import { useCourt } from "../../lib/court.tsx";
 import { shortAddr, usd } from "../../lib/money.ts";
 import { VIEW_META, inView, type View } from "../../lib/views.ts";
 import { Icon } from "../ui/Icon.tsx";
+import { Mark } from "../ui/Logo.tsx";
 import { NAV, NAV_FOOT } from "./nav.ts";
 import { useShell } from "./ShellContext.tsx";
 import s from "./shell.module.css";
@@ -22,7 +23,7 @@ export function Sidebar() {
   return (
     <aside className={s.sidebar} aria-label="Primary">
       <Link href="/" className={s.brand} aria-label="Chargeback home">
-        <span className={s.mark} aria-hidden="true" />
+        <Mark size={28} />
         <span className={s.brandText}>CHARGEBACK</span>
       </Link>
 

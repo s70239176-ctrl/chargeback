@@ -32,23 +32,6 @@
   font: 600 var(--fs-body) / 1 var(--font-sans);
   letter-spacing: 0.14em;
 }
-.mark {
-  width: 24px;
-  height: 24px;
-  flex: none;
-  border-radius: 7px;
-  border: 1px solid var(--border-strong);
-  display: grid;
-  place-items: center;
-  background: var(--surface-2);
-}
-.mark::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--positive);
-}
 .nav {
   display: flex;
   flex-direction: column;
