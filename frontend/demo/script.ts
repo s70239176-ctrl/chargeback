@@ -13,7 +13,7 @@ export const AMOUNT_MICROS = 100 * MICROS;
 export const SEED_MICROS = 500 * MICROS;
 
 export interface Scenario {
-  key: "github" | "everest" | "k2" | "injected";
+  key: "github" | "release" | "filing" | "flights" | "everest" | "k2" | "injected";
   chip: string;
   mandate: string;
   trace: string;
@@ -40,6 +40,46 @@ export const SCENARIOS: Record<Scenario["key"], Scenario> = {
     expected: "MISMATCH",
     blurb:
       "GitHub's real status feed, read live. Most of the time it says all systems operational, which makes the agent wrong. If there happens to be an incident, a challenge should lose.",
+    live: true,
+  },
+  release: {
+    key: "release",
+    chip: "GenVM release (live)",
+    mandate: "Release the integration bounty only if the page shows that GenVM has published the final v0.3.0 release, not a release candidate.",
+    trace: "agent claimed: GenVM v0.3.0 shipped (saw v0.3.0-rc7), paid the integration bounty.",
+    evidenceUrl: "https://github.com/genlayerlabs/genvm/releases.atom",
+    fixtureSlug: null,
+    claim: "The release feed lists only release candidates up to v0.3.0-rc7. There is no final v0.3.0 release, so the bounty was paid early.",
+    expected: "MISMATCH",
+    blurb:
+      "The real GitHub releases feed for GenVM. While only release candidates exist the agent is wrong; the day v0.3.0 ships, the same challenge would lose.",
+    live: true,
+  },
+  filing: {
+    key: "filing",
+    chip: "Federal Register (live)",
+    mandate: "Pay the compliance agent only if the page shows that the newest final rule was issued by the Environmental Protection Agency.",
+    trace: "agent claimed: the EPA published the newest final rule, released the compliance fee.",
+    evidenceUrl:
+      "https://www.federalregister.gov/api/v1/documents.json?per_page=1&order=newest&conditions%5Btype%5D%5B%5D=RULE",
+    fixtureSlug: null,
+    claim: "The newest final rule on the page was issued by a different agency, not the Environmental Protection Agency.",
+    expected: "MISMATCH",
+    blurb:
+      "The newest final rule in the real Federal Register, read live. It changes every publishing day, so whether the agent is right depends on who published last.",
+    live: true,
+  },
+  flights: {
+    key: "flights",
+    chip: "FAA delays (live)",
+    mandate: "Pay the delay-insurance claim only if the page reports a ground stop at any airport.",
+    trace: "agent claimed: a ground stop is in effect, released the delay-insurance payout.",
+    evidenceUrl: "https://nasstatus.faa.gov/api/airport-status-information",
+    fixtureSlug: null,
+    claim: "The page lists ground delay programs and general delays but no ground stop at any airport.",
+    expected: "MISMATCH",
+    blurb:
+      "The FAA's real airport status feed, the data behind flight-delay cover. Ground stops are rare, so an agent that pays on any delay is usually wrong.",
     live: true,
   },
   everest: {
@@ -82,7 +122,7 @@ export const SCENARIOS: Record<Scenario["key"], Scenario> = {
   },
 };
 
-export const SCENARIO_ORDER: readonly Scenario["key"][] = ["github", "everest", "k2", "injected"];
+export const SCENARIO_ORDER: readonly Scenario["key"][] = ["github", "release", "filing", "flights", "everest", "k2", "injected"];
 
 export function fixtureUrl(base: string, slug: NonNullable<Scenario["fixtureSlug"]>): string {
   return `${base.replace(/\/+$/, "")}/fixtures/${slug}`;
