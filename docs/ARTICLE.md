@@ -1,4 +1,4 @@
-# I Built a Veto for AI Agent Spending on GenLayer. The Network Taught Me More Than the Docs Did.
+# Chargeback: A Standing Veto on AI Agent Spending, Built on GenLayer
 
 *A state machine, a validator panel, three bugs in my own spec, and the afternoon a smart contract quietly destroyed money.*
 

@@ -1,4 +1,4 @@
-# What Happens When a Robot Spends Your Money? I Built a Way for a Stranger to Say "Wait."
+# Chargeback: A Way for Strangers to Say "Wait" Before an AI Spends Your Money
 
 *A plain-English story about checking payments made by AI, and what broke along the way.*
 
