@@ -55,7 +55,8 @@ an agent claims GenVM v0.3.0 shipped, a stranger challenges it, the panel reads 
 feed and rules MISMATCH, and the spend reverts. Waits for transactions are time-lapsed 4x and labelled.
 Re-record it with `node frontend/demo/record.mjs` (needs Edge or Chrome and the app running).
 
-The long-form write-up is in [docs/ARTICLE.md](docs/ARTICLE.md).
+Write-ups: [plain-English story](docs/ARTICLE-GENERAL.md) for a general audience, and the
+[engineering deep dive](docs/ARTICLE.md).
 
 ## Contract details
 
