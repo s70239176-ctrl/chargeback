@@ -18,6 +18,10 @@ Code, contract and a demo video are linked at the end. Everything described belo
 
 That line is on the product's front page, and it is the thesis. Hold onto it.
 
+![The Chargeback front page: the headline "Recover the money your agents should never have spent" beside a live panel reading 1,025 tUSD recovered, 0 at risk and 14 rulings.](images/front-page.png)
+
+*The front page, rendered against the live contract. The panel on the right is one `get_snapshot` read; nothing on it is hard-coded.*
+
 ---
 
 ## The mechanism, on one page

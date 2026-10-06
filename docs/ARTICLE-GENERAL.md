@@ -20,6 +20,10 @@ This is the story of a small project I built to answer that. It's called Chargeb
 
 Let me explain what that means, why the obvious solutions don't work, and what I learned the hard way while building it.
 
+![The front page of the Chargeback website: a dark page with the headline "Recover the money your agents should never have spent", and a live panel showing 1,025 tUSD recovered, 0 at risk and 14 rulings.](images/front-page.png)
+
+*The front page of the live site. The three numbers on the right are read straight from the system as you look at them.*
+
 ---
 
 ## The three usual answers, and why they fall short
