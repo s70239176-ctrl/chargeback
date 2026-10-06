@@ -9,3 +9,4 @@ __pycache__/
 next-env.d.ts
 tsconfig.tsbuildinfo
 .claude/
+docs/demo/_raw/

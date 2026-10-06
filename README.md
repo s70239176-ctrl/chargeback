@@ -47,6 +47,16 @@ becomes a bottom-nav app with its own focused overview. Nothing on any screen is
 cannot be computed from a spend, a challenge or a ruling, it is not shown (so there is no "recovery
 confidence" percentage, only the panel's label, reason and verified quote).
 
+## Demo video
+
+[`docs/demo/chargeback-demo.mp4`](docs/demo/chargeback-demo.mp4) (3 min 23 s, also `.webm`) is a real
+browser recording of the app against the live contract, with real validators and a real public source:
+an agent claims GenVM v0.3.0 shipped, a stranger challenges it, the panel reads the live GitHub releases
+feed and rules MISMATCH, and the spend reverts. Waits for transactions are time-lapsed 4x and labelled.
+Re-record it with `node frontend/demo/record.mjs` (needs Edge or Chrome and the app running).
+
+The long-form write-up is in [docs/ARTICLE.md](docs/ARTICLE.md).
+
 ## Contract details
 
 | | |
