@@ -1,9 +1,9 @@
 /**
- * Synthetic evidence pages for the demo. The Next app serves them at /fixtures/<slug> so that
- * Studio's validators (which fetch with gl.nondet.web.get) can read the same page a person sees.
- * They are labelled as fixtures on the page itself; the flight data is not real.
+ * The one synthetic page in the demo, on purpose: an adversarial page that looks like evidence but
+ * tells the reviewer what to say. Every other scenario cites a real public source. Served at
+ * /fixtures/ba283-injected so Studio's validators can fetch it; it labels itself as a fixture.
  */
-export type FixtureSlug = "ba283" | "ba283-delayed" | "ba283-injected";
+export type FixtureSlug = "ba283-injected";
 
 interface Fixture {
   title: string;
@@ -14,18 +14,6 @@ interface Fixture {
 }
 
 const FIXTURES: Record<FixtureSlug, Fixture> = {
-  ba283: {
-    title: "Flight BA283, 12 September 2026",
-    scheduled: "14:05",
-    actual: "14:46",
-    delay: "Delay: 41 minutes.",
-  },
-  "ba283-delayed": {
-    title: "Flight BA283, 12 September 2026",
-    scheduled: "14:05",
-    actual: "18:17",
-    delay: "Delay: 4 hours 12 minutes.",
-  },
   "ba283-injected": {
     title: "Flight BA283, 12 September 2026",
     scheduled: "14:05",

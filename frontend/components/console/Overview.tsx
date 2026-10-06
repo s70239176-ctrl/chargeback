@@ -86,7 +86,7 @@ export function Overview() {
           </div>
         </div>
         <p className={c.heroNote}>
-          Money → Risk → Evidence → Action → Recovery. Every number here is read from the contract; amounts are mock USDC.
+          Money → Risk → Evidence → Action → Recovery. Every number here is read from the contract; amounts are test funds (tUSD) on Studionet.
         </p>
       </section>
 
@@ -95,7 +95,7 @@ export function Overview() {
           <div className={c.onboard}>
             <div>
               <p className={c.analysisLead}>Start with the demo accounts.</p>
-              <p className={c.dim}>Mint free mock USDC to the payer, recipient and stranger in this browser, then open a spend and play every side.</p>
+              <p className={c.dim}>Mint free test funds (tUSD) to the payer, recipient and stranger in this browser, then open a spend and play every side.</p>
             </div>
             <Button
               variant="primary"

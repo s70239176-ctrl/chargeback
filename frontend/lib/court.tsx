@@ -3,16 +3,17 @@
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CalldataEncodable } from "genlayer-js/types";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ROLES, addressesOf, loadOrCreateKeys, resetKeys, type Keys } from "./accounts.ts";
+import { IDENTITIES, ROLES, addressesOf, loadOrCreateKeys, resetKeys, type Keys } from "./accounts.ts";
 import { createChainApi, type ChainApi, type Hash, type Signer, type TxPhase } from "./chain.ts";
-import { chainConfig } from "./config.ts";
+import { chainConfig, explorerUrl, networkName } from "./config.ts";
 import { describeError } from "./errors.ts";
-import type { CaseRecord, CourtConfig, CourtStats, Role, Spend, WriteFn } from "./types.ts";
+import type { CaseRecord, CourtConfig, CourtStats, Identity, Spend, WriteFn } from "./types.ts";
+import { approvedAccount, connectWallet as connectInjected, describeWalletError, injectedProvider, type Eip1193 } from "./wallet.ts";
 
 export interface TxEntry {
   id: number;
   label: string;
-  role: Role;
+  role: Identity;
   fn: WriteFn;
   hash?: Hash;
   phase: TxPhase | "failed";
@@ -28,10 +29,16 @@ interface CourtValue {
   configured: boolean;
   /** True once this browser's demo keys exist (they are minted client-side after hydration). */
   accountsReady: boolean;
-  addresses: Record<Role, string>;
-  active: Role;
-  setActive: (role: Role) => void;
-  run: (label: string, role: Role, fn: WriteFn, args: CalldataEncodable[]) => Promise<RunResult>;
+  addresses: Record<Identity, string>;
+  active: Identity;
+  setActive: (role: Identity) => void;
+  run: (label: string, role: Identity, fn: WriteFn, args: CalldataEncodable[]) => Promise<RunResult>;
+  /** Whether this browser has an EIP-1193 wallet extension at all. */
+  walletAvailable: boolean;
+  walletConnected: boolean;
+  /** Resolves to null on success, or a sentence explaining why it did not connect. */
+  connectWallet: () => Promise<string | null>;
+  disconnectWallet: () => void;
   txs: TxEntry[];
   busy: boolean;
   dismissTx: (id: number) => void;
@@ -43,16 +50,16 @@ interface CourtValue {
   stats: CourtStats | undefined;
   spends: Spend[] | undefined;
   cases: CaseRecord[] | undefined;
-  balances: Record<Role, number | undefined>;
+  balances: Record<Identity, number | undefined>;
   dataError: string | null;
   loading: boolean;
   seeded: boolean;
-  seededRoles: Record<Role, boolean>;
+  seededRoles: Record<Identity, boolean>;
   /** True when one of this browser's three demo accounts is a party to the spend. */
   isMine: (spend: Spend) => boolean;
 }
 
-const BLANK: Record<Role, string> = { payer: "", recipient: "", stranger: "" };
+const BLANK: Record<Identity, string> = { payer: "", recipient: "", stranger: "", wallet: "" };
 
 const OFFLINE: CourtValue = {
   configured: false,
@@ -61,6 +68,10 @@ const OFFLINE: CourtValue = {
   active: "stranger",
   setActive: () => undefined,
   run: async () => ({ ok: false, error: "This build has no contract address (NEXT_PUBLIC_CHARGEBACK_ADDRESS)." }),
+  walletAvailable: false,
+  walletConnected: false,
+  connectWallet: async () => "This build has no contract address.",
+  disconnectWallet: () => undefined,
   txs: [],
   busy: false,
   dismissTx: () => undefined,
@@ -71,11 +82,11 @@ const OFFLINE: CourtValue = {
   stats: undefined,
   spends: undefined,
   cases: undefined,
-  balances: { payer: undefined, recipient: undefined, stranger: undefined },
+  balances: { payer: undefined, recipient: undefined, stranger: undefined, wallet: undefined },
   dataError: null,
   loading: false,
   seeded: false,
-  seededRoles: { payer: false, recipient: false, stranger: false },
+  seededRoles: { payer: false, recipient: false, stranger: false, wallet: false },
   isMine: () => false,
 };
 
@@ -117,16 +128,77 @@ function Live({ children }: { children: ReactNode }) {
   const api = useMemo(() => createChainApi(cfg), [cfg]);
   const [keys, setKeys] = useState<Keys | null>(null);
   useEffect(() => setKeys(loadOrCreateKeys()), []);
-  const addresses = useMemo(() => (keys ? addressesOf(keys) : BLANK), [keys]);
-  const signers = useMemo<Record<Role, Signer> | null>(
+  const [wallet, setWallet] = useState<{ address: string; provider: Eip1193 } | null>(null);
+  const [walletAvailable, setWalletAvailable] = useState(false);
+  const addresses = useMemo<Record<Identity, string>>(
+    () => ({ ...(keys ? addressesOf(keys) : { payer: "", recipient: "", stranger: "" }), wallet: wallet?.address ?? "" }),
+    [keys, wallet],
+  );
+  const signers = useMemo<Partial<Record<Identity, Signer>> | null>(
     () =>
       keys
-        ? { payer: api.signer(keys.payer), recipient: api.signer(keys.recipient), stranger: api.signer(keys.stranger) }
+        ? {
+            payer: api.signer(keys.payer),
+            recipient: api.signer(keys.recipient),
+            stranger: api.signer(keys.stranger),
+            ...(wallet ? { wallet: api.walletSigner(wallet.provider, wallet.address) } : {}),
+          }
         : null,
-    [api, keys],
+    [api, keys, wallet],
   );
   const qc = useQueryClient();
-  const [active, setActive] = useState<Role>("stranger");
+  const [active, setActive] = useState<Identity>("stranger");
+
+  const net = useMemo(
+    () => ({ chainId: cfg.chainId, rpcUrl: cfg.rpcUrl, name: `GenLayer ${networkName}`, symbol: "GEN", explorer: explorerUrl }),
+    [cfg],
+  );
+  // Quietly resume a wallet the visitor already approved for this site; never prompt on load.
+  useEffect(() => {
+    const provider = injectedProvider();
+    setWalletAvailable(provider !== null);
+    if (!provider) return;
+    let remembered = false;
+    try {
+      remembered = window.localStorage.getItem("chargeback.wallet.v1") === "1";
+    } catch {
+      /* storage unavailable */
+    }
+    if (remembered) void approvedAccount(provider).then((a) => a && setWallet({ address: a, provider }));
+    const onAccounts = (...args: unknown[]) => {
+      const list = args[0];
+      const next = Array.isArray(list) && typeof list[0] === "string" ? list[0] : null;
+      setWallet(next ? { address: next, provider } : null);
+    };
+    provider.on?.("accountsChanged", onAccounts);
+    return () => provider.removeListener?.("accountsChanged", onAccounts);
+  }, []);
+  const connectWallet = useCallback(async (): Promise<string | null> => {
+    const provider = injectedProvider();
+    if (!provider) return "No wallet was found in this browser. Install MetaMask (or any EIP-1193 wallet) and reload.";
+    try {
+      const address = await connectInjected(provider, net);
+      setWallet({ address, provider });
+      setActive("wallet");
+      try {
+        window.localStorage.setItem("chargeback.wallet.v1", "1");
+      } catch {
+        /* storage unavailable */
+      }
+      return null;
+    } catch (e) {
+      return describeWalletError(e);
+    }
+  }, [net]);
+  const disconnectWallet = useCallback(() => {
+    setWallet(null);
+    setActive((a) => (a === "wallet" ? "stranger" : a));
+    try {
+      window.localStorage.removeItem("chargeback.wallet.v1");
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
   const [txs, setTxs] = useState<TxEntry[]>([]);
   const nextId = useRef(1);
   const inFlight = useRef(0);
@@ -136,7 +208,7 @@ function Live({ children }: { children: ReactNode }) {
 
   // One request returns everything on screen. The hosted RPC allows ~30 requests a minute, so the
   // snapshot is polled slowly and not at all while a transaction is being followed (that already polls).
-  const wanted = useMemo(() => (keys ? ROLES.map((r) => addresses[r]) : []), [keys, addresses]);
+  const wanted = useMemo(() => (keys ? IDENTITIES.map((r) => addresses[r]).filter((a) => a !== "") : []), [keys, addresses]);
   const snapshot = useQuery({
     queryKey: ["snapshot", ...wanted],
     queryFn: () => api.reads.snapshot(wanted),
@@ -145,12 +217,13 @@ function Live({ children }: { children: ReactNode }) {
     retry: 1,
   });
   const snap = snapshot.data;
-  const balanceOf = (role: Role): number | undefined =>
-    snap && keys ? (snap.balances[addresses[role].toLowerCase()] ?? 0) : undefined;
-  const balances: Record<Role, number | undefined> = {
+  const balanceOf = (role: Identity): number | undefined =>
+    snap && keys && addresses[role] !== "" ? (snap.balances[addresses[role].toLowerCase()] ?? 0) : undefined;
+  const balances: Record<Identity, number | undefined> = {
     payer: balanceOf("payer"),
     recipient: balanceOf("recipient"),
     stranger: balanceOf("stranger"),
+    wallet: balanceOf("wallet"),
   };
 
   const patch = useCallback((id: number, change: Partial<TxEntry>) => {
@@ -159,7 +232,10 @@ function Live({ children }: { children: ReactNode }) {
 
   const run = useCallback<CourtValue["run"]>(
     async (label, role, fn, args) => {
-      if (!signers) return { ok: false, error: "Demo accounts are still being created. Try again in a moment." };
+      const signer = signers?.[role];
+      if (!signer) {
+        return { ok: false, error: role === "wallet" ? "Connect your wallet first." : "Demo accounts are still being created. Try again in a moment." };
+      }
       const id = nextId.current++;
       setTxs((list) => [...list.slice(-19), { id, label, role, fn, phase: "signing", at: Date.now() }]);
       inFlight.current += 1;
@@ -169,7 +245,7 @@ function Live({ children }: { children: ReactNode }) {
         if (inFlight.current === 0) setBusy(false);
       };
       try {
-        const hash = await signers[role].send(fn, args, {
+        const hash = await signer.send(fn, args, {
           onHash: (h) => patch(id, { hash: h }),
           onPhase: (phase, detail) => patch(id, { phase, detail }),
         });
@@ -194,12 +270,14 @@ function Live({ children }: { children: ReactNode }) {
     setKeys(resetKeys());
   }, []);
 
-  const seededRoles: Record<Role, boolean> = {
-    payer: (snap?.seeded[addresses.payer.toLowerCase()] ?? 0) > 0,
-    recipient: (snap?.seeded[addresses.recipient.toLowerCase()] ?? 0) > 0,
-    stranger: (snap?.seeded[addresses.stranger.toLowerCase()] ?? 0) > 0,
+  const seededOf = (role: Identity) => addresses[role] !== "" && (snap?.seeded[addresses[role].toLowerCase()] ?? 0) > 0;
+  const seededRoles: Record<Identity, boolean> = {
+    payer: seededOf("payer"),
+    recipient: seededOf("recipient"),
+    stranger: seededOf("stranger"),
+    wallet: seededOf("wallet"),
   };
-  const mine = new Set(keys ? ROLES.map((r) => addresses[r].toLowerCase()) : []);
+  const mine = new Set(keys ? IDENTITIES.map((r) => addresses[r].toLowerCase()).filter((a) => a !== "") : []);
   const isMine = (s: Spend) =>
     mine.has(s.payer.toLowerCase()) ||
     mine.has(s.recipient.toLowerCase()) ||
@@ -212,6 +290,10 @@ function Live({ children }: { children: ReactNode }) {
     active,
     setActive,
     run,
+    walletAvailable,
+    walletConnected: wallet !== null,
+    connectWallet,
+    disconnectWallet,
     txs,
     busy,
     dismissTx,

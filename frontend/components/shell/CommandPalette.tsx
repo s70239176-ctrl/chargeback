@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ROLES, ROLE_LABEL } from "../../lib/accounts.ts";
+import { IDENTITIES, ROLES, ROLE_LABEL } from "../../lib/accounts.ts";
 import { useCourt } from "../../lib/court.tsx";
 import { search, type SearchItem } from "../../lib/derive.ts";
 import { SEED_MICROS } from "../../demo/script.ts";
@@ -16,7 +16,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const input = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const { openNewSpend } = useShell();
-  const { spends, cases, setActive, run, seededRoles, addresses } = useCourt();
+  const { spends, cases, setActive, run, seededRoles, addresses, walletConnected } = useCourt();
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
 
@@ -36,9 +36,14 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     const out: SearchItem[] = [
       { kind: "Actions", label: "Open a new spend", hint: "Lock funds behind a mandate", action: "new" },
       ...(ROLES.some((r) => !seededRoles[r])
-        ? [{ kind: "Actions", label: "Seed demo accounts", hint: "Mint free mock USDC", action: "seed" }]
+        ? [{ kind: "Actions", label: "Seed demo accounts", hint: "Mint free test funds", action: "seed" }]
         : []),
-      ...ROLES.map((r) => ({ kind: "Actions", label: `Act as ${ROLE_LABEL[r]}`, hint: "Switch signer", action: `as:${r}` })),
+      ...IDENTITIES.filter((r) => r !== "wallet" || walletConnected).map((r) => ({
+        kind: "Actions",
+        label: `Act as ${ROLE_LABEL[r]}`,
+        hint: "Switch signer",
+        action: `as:${r}`,
+      })),
     ];
     for (const g of NAV) for (const n of g.items) out.push({ kind: "Pages", label: n.label, hint: n.href.replace("/console", "") || "/", href: n.href });
     for (const n of NAV_FOOT) out.push({ kind: "Pages", label: n.label, hint: n.href.replace("/console", ""), href: n.href });
@@ -55,7 +60,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       out.push({ kind: "Evidence", label: sp.evidenceUrl, hint: `spend #${sp.id}`, href: `/console/spend/${sp.id}` });
     }
     return out;
-  }, [spends, cases, seededRoles]);
+  }, [spends, cases, seededRoles, walletConnected]);
 
   const results = useMemo(() => search(items, query, 9), [items, query]);
 
@@ -67,7 +72,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     else if (item.action === "seed") {
       for (const r of ROLES.filter((x) => !seededRoles[x])) void run(`Seed ${ROLE_LABEL[r]}`, r, "seed", [BigInt(SEED_MICROS)]);
     } else if (item.action?.startsWith("as:")) {
-      const role = ROLES.find((r) => r === item.action?.slice(3));
+      const role = IDENTITIES.find((r) => r === item.action?.slice(3));
       if (role && addresses[role]) setActive(role);
     }
   }

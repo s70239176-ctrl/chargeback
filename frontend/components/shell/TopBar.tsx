@@ -12,7 +12,7 @@ import s from "./shell.module.css";
 
 export function TopBar() {
   const { openPalette } = useShell();
-  const { spends, addresses, chainNow, config, active } = useCourt();
+  const { spends, addresses, chainNow, config, active, walletConnected } = useCourt();
   const pending = spends && config ? nextActions(spends, addresses, chainNow, config.tickSeconds).length : 0;
 
   return (
@@ -37,6 +37,9 @@ export function TopBar() {
             {shortAddr(chainConfig.contract)}
           </a>
         )}
+        <Link href="/console/settings#wallet" className={`${s.hideMobile}`} style={{ textDecoration: "none" }}>
+          <Badge tone={walletConnected ? "positive" : "neutral"}>{walletConnected ? "Wallet connected" : "Connect wallet"}</Badge>
+        </Link>
         <Link href="/console/activity" className={`${s.item} ${s.bell}`} style={{ width: 36, padding: 0, justifyContent: "center" }} aria-label={`Notifications${pending ? `, ${pending} need attention` : ""}`}>
           <Icon name="bell" />
           {pending > 0 && <span className={s.bellDot}>{pending > 9 ? "9+" : pending}</span>}

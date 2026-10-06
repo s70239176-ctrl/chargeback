@@ -40,3 +40,5 @@ export function isPrivateHost(base: string): boolean {
     return true;
   }
 }
+
+export const explorerUrl = explorer;

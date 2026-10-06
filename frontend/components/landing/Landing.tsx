@@ -68,7 +68,7 @@ export function Landing() {
               See how it works
             </LinkButton>
           </div>
-          <p className={l.fine}>Live on {networkName}. Balances are mock USDC; every number on this page is read from the contract.</p>
+          <p className={l.fine}>Live on {networkName}. Amounts are test funds (tUSD); every number on this page is read from the contract.</p>
         </div>
 
         <div className={l.heroCard} aria-label="Live contract totals">

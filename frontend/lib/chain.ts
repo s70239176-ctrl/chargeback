@@ -153,7 +153,19 @@ export function createChainApi(cfg: ChainConfig) {
 
   function signer(privateKey: string) {
     const account = createAccount(privateKey as `0x${string}`);
-    const client = createClient({ chain, account });
+    return signerFor(createClient({ chain, account }), account.address as Address);
+  }
+
+  /**
+   * A signer backed by the visitor's own wallet (any EIP-1193 provider). Signing and sending go to the
+   * wallet; every read still goes straight to the GenLayer RPC.
+   */
+  function walletSigner(provider: unknown, address: string) {
+    const client = createClient({ chain, account: address as `0x${string}`, provider: provider as never });
+    return signerFor(client, address as Address);
+  }
+
+  function signerFor(client: ReturnType<typeof createClient>, address: Address) {
 
     async function send(fn: WriteFn, args: CalldataEncodable[], hooks: TxHooks = {}): Promise<Hash> {
       const waiting = (seconds: number) =>
@@ -221,10 +233,10 @@ export function createChainApi(cfg: ChainConfig) {
       throw new TxFailure("The network is still working on this transaction. Check the explorer for its final state.");
     }
 
-    return { address: account.address as Address, send };
+    return { address, send };
   }
 
-  return { config: cfg, reads, signer };
+  return { config: cfg, reads, signer, walletSigner };
 }
 
 export type ChainApi = ReturnType<typeof createChainApi>;

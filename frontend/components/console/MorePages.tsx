@@ -119,13 +119,77 @@ export function AnalyticsPage() {
 }
 
 export function SettingsPage() {
-  const { addresses, balances, active, setActive, seededRoles, resetAccounts, config, run, busy, accountsReady } = useCourt();
+  const { addresses, balances, active, setActive, seededRoles, resetAccounts, config, run, busy, accountsReady, walletAvailable, walletConnected, connectWallet, disconnectWallet } = useCourt();
+  const [walletMsg, setWalletMsg] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
   const fx = useFixtureBase();
   const [host, setHost] = useState("");
   return (
     <>
       <PageHeader title="Settings" sub="Demo accounts, network and evidence host. Nothing here is a secret: Studionet is gasless and the keys are throwaway." />
       <div className={c.cols2}>
+        <div id="wallet" className={c.stack}>
+        <Panel title="Your wallet">
+          {walletConnected ? (
+            <>
+              <p className={c.analysisLead} style={{ margin: 0 }}>
+                Connected <Badge tone="positive">{networkName}</Badge>
+              </p>
+              <p className="mono" style={{ margin: "6px 0 12px", color: "var(--text-2)", fontSize: 13, overflowWrap: "anywhere" }}>
+                <a href={addressUrl(addresses.wallet)} target="_blank" rel="noreferrer">{addresses.wallet}</a>
+                {" · "}
+                {balances.wallet === undefined ? "…" : usd(balances.wallet ?? 0)}
+              </p>
+              <p className={c.dim}>
+                Your wallet signs every transaction itself; this app never sees its key. Switch to it in the sidebar to open
+                spends, challenge and rule as yourself.
+              </p>
+              <div className={c.accountBtns}>
+                {!seededRoles.wallet && (
+                  <Button size="sm" variant="primary" disabled={busy} onClick={() => void run("Get test funds", "wallet", "seed", [500_000_000n])}>
+                    Get test funds
+                  </Button>
+                )}
+                <Button size="sm" variant={active === "wallet" ? "primary" : "secondary"} onClick={() => setActive("wallet")}>
+                  {active === "wallet" ? "Acting" : "Act as you"}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={disconnectWallet}>
+                  Disconnect
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className={c.dim}>
+                Use your own account instead of the throwaway demo keys. Any EIP-1193 wallet works (MetaMask, Rabby, Coinbase
+                Wallet). It will be asked to add or switch to {networkName}.
+              </p>
+              <Button
+                variant="primary"
+                loading={connecting}
+                onClick={async () => {
+                  setConnecting(true);
+                  setWalletMsg(await connectWallet());
+                  setConnecting(false);
+                }}
+              >
+                Connect wallet
+              </Button>
+              {!walletAvailable && (
+                <p className={c.dim} style={{ marginTop: 12 }}>
+                  No wallet extension was found in this browser. Install{" "}
+                  <a href="https://metamask.io/download/" target="_blank" rel="noreferrer">MetaMask</a> and reload this page.
+                </p>
+              )}
+              {walletMsg && (
+                <p role="alert" style={{ color: "var(--danger)", marginTop: 12 }}>
+                  {walletMsg}
+                </p>
+              )}
+            </>
+          )}
+        </Panel>
+        </div>
         <Panel title="Demo accounts">
           <ul className={c.accounts}>
             {ROLES.map((r) => (
@@ -143,7 +207,7 @@ export function SettingsPage() {
                 <div className={c.accountBtns}>
                   {!seededRoles[r] && (
                     <Button size="sm" disabled={busy || !accountsReady} onClick={() => void run(`Seed ${ROLE_LABEL[r]}`, r, "seed", [500_000_000n])}>
-                      Seed $500
+                      Get 500 tUSD
                     </Button>
                   )}
                   <Button size="sm" variant={active === r ? "primary" : "secondary"} onClick={() => setActive(r)} aria-pressed={active === r}>
@@ -153,7 +217,7 @@ export function SettingsPage() {
               </li>
             ))}
           </ul>
-          <p className={c.dim}>Keys are generated in this browser and kept in localStorage. They hold mock USDC only.</p>
+          <p className={c.dim}>Keys are generated in this browser and kept in localStorage. They hold test balance (tUSD) only.</p>
           <Button variant="danger" size="sm" onClick={resetAccounts} disabled={busy}>
             Generate new demo keys
           </Button>
@@ -246,7 +310,7 @@ export function HelpPage() {
             <div><dt>Esc</dt><dd>Close the palette or a drawer</dd></div>
           </dl>
           <p className={c.dim}>
-            Balances are mock USDC inside the contract. The hosted RPC allows about 30 requests a minute, so the console reads everything in one call and waits politely if it is rate-limited.
+            Balances are the court's own ledger of test funds (tUSD) on Studionet. The hosted RPC allows about 30 requests a minute, so the console reads everything in one call and waits politely if it is rate-limited.
           </p>
           <Link href="/" className={c.insightLink}>Back to the overview <Icon name="arrow" size={13} /></Link>
         </Panel>

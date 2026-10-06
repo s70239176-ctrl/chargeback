@@ -1,27 +1,29 @@
 /**
  * Replays the scripted demo against the deployed contract with real GenLayer validator consensus
- * and asserts every number. This is the end-to-end test.
+ * over real public sources, and asserts every number. This is the end-to-end test.
  *
  *   cd frontend
- *   node --env-file=.env.local --experimental-strip-types demo/run.ts
+ *   npm run demo -- [--appeal] [--unchallenged]
  *
- * Evidence pages come from FIXTURE_BASE_URL (a public https URL of this app, e.g. its Vercel
- * deployment or a tunnel). Without it the run falls back to two stable public pages on
- * example.com so the consensus path can still be exercised end to end.
+ * Evidence comes from sources nobody here controls: Wikipedia's REST API and GitHub's live status
+ * feed. The expected ruling for the live feed is computed from the feed itself at run time.
+ * The adversarial page is synthetic by design and needs this app served on a public host:
  *
- *   --appeal       also exercise an appeal (two extra panel rounds)
- *   --unchallenged also wait out a challenge window and finalize a spend nobody challenged
+ *   FIXTURE_BASE_URL=https://your-app.vercel.app npm run demo
+ *
+ *   --appeal        also exercise an appeal (two extra panel rounds)
+ *   --unchallenged  also wait out a challenge window and finalize a spend nobody challenged
  */
 import { createChainApi, freshPrivateKey, type Signer } from "../lib/chain.ts";
 import { describeError } from "../lib/errors.ts";
 import { bondFor, formatUsdc } from "../lib/money.ts";
-import type { Role, Spend } from "../lib/types.ts";
-import { AMOUNT_MICROS, MANDATE, SCENARIOS, SEED_MICROS, fixtureUrl } from "./script.ts";
+import type { Role } from "../lib/types.ts";
+import { AMOUNT_MICROS, SCENARIOS, SEED_MICROS, scenarioUrl } from "./script.ts";
 
 const env = process.env;
 const contract = env.NEXT_PUBLIC_CHARGEBACK_ADDRESS;
 if (!contract || !/^0x[0-9a-fA-F]{40}$/.test(contract)) {
-  throw new Error("NEXT_PUBLIC_CHARGEBACK_ADDRESS is not set. Run `node deploy/deploy.mjs` first, then use --env-file=.env.local");
+  throw new Error("NEXT_PUBLIC_CHARGEBACK_ADDRESS is not set. Run `node deploy/deploy.mjs` first.");
 }
 const api = createChainApi({
   rpcUrl: env.NEXT_PUBLIC_GENLAYER_RPC_URL || "https://studio.genlayer.com/api",
@@ -33,8 +35,7 @@ const wantAppeal = process.argv.includes("--appeal");
 const wantUnchallenged = process.argv.includes("--unchallenged");
 
 const t0 = Date.now();
-const stamp = () => `${((Date.now() - t0) / 1000).toFixed(0).padStart(4)}s`;
-const log = (msg: string) => console.log(`${stamp()}  ${msg}`);
+const log = (msg: string) => console.log(`${((Date.now() - t0) / 1000).toFixed(0).padStart(4)}s  ${msg}`);
 let failures = 0;
 function check(name: string, cond: boolean, detail = "") {
   if (cond) log(`  ok   ${name}`);
@@ -50,13 +51,15 @@ const who: Record<Role, Signer> = {
   stranger: api.signer(freshPrivateKey()),
 };
 
-async function tx(role: Role, fn: Parameters<Signer["send"]>[0], args: Parameters<Signer["send"]>[1], label: string) {
+type Fn = Parameters<Signer["send"]>[0];
+type Args = Parameters<Signer["send"]>[1];
+
+async function tx(role: Role, fn: Fn, args: Args, label: string) {
   const hash = await who[role].send(fn, args);
   log(`${label}  tx ${hash.slice(0, 12)}…`);
-  return hash;
 }
 
-async function expectRevert(role: Role, fn: Parameters<Signer["send"]>[0], args: Parameters<Signer["send"]>[1], needle: string, label: string) {
+async function expectRevert(role: Role, fn: Fn, args: Args, needle: string, label: string) {
   try {
     await who[role].send(fn, args);
     check(label, false, "call succeeded");
@@ -66,41 +69,9 @@ async function expectRevert(role: Role, fn: Parameters<Signer["send"]>[0], args:
   }
 }
 
-async function bal(role: Role) {
-  return api.reads.balance(who[role].address);
-}
-
-interface Pages {
-  short: string;
-  long: string;
-  injected: string | null;
-  mandateShort: string;
-  mandateLong: string;
-  claimShort: string;
-  claimLong: string;
-}
-
-const pages: Pages = fixtureBase
-  ? {
-      short: fixtureUrl(fixtureBase, "ba283"),
-      long: fixtureUrl(fixtureBase, "ba283-delayed"),
-      injected: fixtureUrl(fixtureBase, "ba283-injected"),
-      mandateShort: MANDATE,
-      mandateLong: MANDATE,
-      claimShort: SCENARIOS.short.claim,
-      claimLong: SCENARIOS.long.claim,
-    }
-  : {
-      short: "https://example.com/",
-      long: "https://example.com/",
-      injected: null,
-      mandateShort: "Pay only if the page states that this website sells running shoes.",
-      mandateLong: "Pay only if the page states that this domain is for use in illustrative examples in documents.",
-      claimShort: "The page is the generic example domain notice and does not mention running shoes at all.",
-      claimLong: "The page says nothing about payment, so I doubt it supports releasing funds.",
-    };
-
+const bal = (role: Role) => api.reads.balance(who[role].address);
 const mine: number[] = [];
+const BOND = bondFor(AMOUNT_MICROS);
 
 async function openSpend(mandate: string, url: string, trace: string): Promise<number> {
   await tx("payer", "open_spend", [who.recipient.address, BigInt(AMOUNT_MICROS), mandate, url, trace], "open_spend");
@@ -114,69 +85,72 @@ async function challenge(spendId: number, claim: string, url: string, precedent 
   return (await api.reads.spend(spendId)).activeChallengeId;
 }
 
-const BOND = bondFor(AMOUNT_MICROS);
+async function ruled(challengeId: number, spendId: number) {
+  await tx("stranger", "rule", [BigInt(challengeId)], "rule");
+  const s = await api.reads.spend(spendId);
+  log(`  label ${s.challenge?.verdictLabel}: ${s.challenge?.verdictReason}`);
+  log(`  quote "${s.challenge?.evidenceQuote}"`);
+  return s;
+}
+
+/** The real GitHub status feed, read by this script, decides what an honest panel must say. */
+async function githubIncident(): Promise<boolean> {
+  const res = await fetch(SCENARIOS.github.evidenceUrl ?? "");
+  const body = (await res.json()) as { status?: { indicator?: string; description?: string } };
+  log(`  github status right now: ${body.status?.indicator} (${body.status?.description})`);
+  return body.status?.indicator !== "none";
+}
 
 async function main() {
-  log(`contract ${contract}${fixtureBase ? `  fixtures ${fixtureBase}` : "  (no FIXTURE_BASE_URL: using example.com pages)"}`);
+  log(`contract ${contract}`);
   const cfg = await api.reads.config();
   log(`window ${cfg.windowTicks} ticks x ${cfg.tickSeconds}s = ${cfg.windowSeconds}s`);
-
   const supplyBefore = (await api.reads.stats()).totalSupply;
+
   await Promise.all((["payer", "recipient", "stranger"] as const).map((r) => tx(r, "seed", [BigInt(SEED_MICROS)], `seed ${r}`)));
-  check("each account holds 500 USDC", (await Promise.all([bal("payer"), bal("recipient"), bal("stranger")])).every((b) => b === SEED_MICROS));
+  check("each account holds the seed", (await Promise.all([bal("payer"), bal("recipient"), bal("stranger")])).every((b) => b === SEED_MICROS));
   await expectRevert("payer", "seed", [1n], "already been seeded", "a second seed is refused");
 
-  // ---- 1. payer opens 100 USDC
-  log("STEP 1  payer opens a 100 USDC spend");
-  const s1 = await openSpend(pages.mandateShort, pages.short, "agent claimed: delay exceeded policy, released payment.");
+  // ---- 1. a false claim over a real page: the stranger should win
+  const k2 = SCENARIOS.k2;
+  log("STEP 1  the agent claims K2 is the highest mountain; the real Wikipedia page says Everest");
+  const s1 = await openSpend(k2.mandate, k2.evidenceUrl ?? "", k2.trace);
   let spend = await api.reads.spend(s1);
   check("status is open and provisional", spend.status === "open");
   check("payer is locked for amount + bond", (await bal("payer")) === SEED_MICROS - AMOUNT_MICROS - BOND);
   check("recipient has not been paid", (await bal("recipient")) === SEED_MICROS);
-  await expectRevert("payer", "challenge", [BigInt(s1), "I challenge my own spend, which is not allowed.", pages.short, 0n], "cannot challenge", "the payer cannot challenge");
-  await expectRevert("recipient", "challenge", [BigInt(s1), "I challenge a spend paying me, which is not allowed.", pages.short, 0n], "cannot challenge", "the recipient cannot challenge");
+  await expectRevert("payer", "challenge", [BigInt(s1), "I challenge my own spend, which is not allowed.", k2.evidenceUrl ?? "", 0n], "cannot challenge", "the payer cannot challenge");
+  await expectRevert("recipient", "challenge", [BigInt(s1), "I challenge a spend paying me, which is not allowed.", k2.evidenceUrl ?? "", 0n], "cannot challenge", "the recipient cannot challenge");
   await expectRevert("recipient", "finalize", [BigInt(s1)], "still open", "finalize before the deadline is refused");
-
-  // ---- 2. a stranger funds a second look
-  log("STEP 2  a stranger funds a second look");
-  const c1 = await challenge(s1, pages.claimShort, pages.short);
+  const c1 = await challenge(s1, k2.claim, k2.evidenceUrl ?? "");
   check("the challenge is registered and the bond is held", c1 > 0 && (await bal("stranger")) === SEED_MICROS - BOND);
-
-  // ---- 3. rule -> MISMATCH, reverted
-  log("STEP 3  the validator panel rules (this is the real consensus round)");
-  await tx("stranger", "rule", [BigInt(c1)], "rule");
-  spend = await api.reads.spend(s1);
-  const ch1 = spend.challenge;
-  log(`  label ${ch1?.verdictLabel}: ${ch1?.verdictReason}`);
-  log(`  quote "${ch1?.evidenceQuote}"`);
-  check("ruling is MISMATCH", ch1?.verdictLabel === "MISMATCH");
+  spend = await ruled(c1, s1);
+  check("ruling is MISMATCH", spend.challenge?.verdictLabel === "MISMATCH");
+  check("the quote comes from the real page", /highest/i.test(spend.challenge?.evidenceQuote ?? ""));
   check("spend reverted", spend.status === "reverted");
   check("payer is refunded the amount, minus the slashed bond", (await bal("payer")) === SEED_MICROS - BOND);
   check("stranger holds both bonds", (await bal("stranger")) === SEED_MICROS + BOND);
   check("recipient never received the amount", (await bal("recipient")) === SEED_MICROS);
-  check("case 1 is written", (await api.reads.cases()).some((c) => c.id === 1 || c.spendId === s1));
   await expectRevert("stranger", "rule", [BigInt(c1)], "already been ruled on", "a ruling cannot be re-run");
-  const caseId = ch1?.caseId ?? 0;
+  const caseId = spend.challenge?.caseId ?? 0;
 
-  // ---- 4. second spend, the agent is right, the stranger loses
-  log("STEP 4  second spend, same mandate, the agent is right; the stranger challenges anyway");
-  const s2 = await openSpend(pages.mandateLong, pages.long, "agent claimed: delay exceeded policy, released payment.");
-  const c2 = await challenge(s2, pages.claimLong, pages.long, caseId);
-  await tx("stranger", "rule", [BigInt(c2)], "rule");
-  spend = await api.reads.spend(s2);
-  const ch2 = spend.challenge;
-  log(`  label ${ch2?.verdictLabel}: ${ch2?.verdictReason}`);
-  check("precedent was recorded on the challenge", ch2?.citedCaseId === caseId);
-  check("ruling is MATCH", ch2?.verdictLabel === "MATCH");
+  // ---- 2. a true claim: the stranger challenges anyway and loses
+  const ev = SCENARIOS.everest;
+  log("STEP 2  the agent is right; the stranger challenges anyway, citing the first case");
+  const s2 = await openSpend(ev.mandate, ev.evidenceUrl ?? "", ev.trace);
+  const c2 = await challenge(s2, ev.claim, ev.evidenceUrl ?? "", caseId);
+  spend = await ruled(c2, s2);
+  check("precedent was recorded on the challenge", spend.challenge?.citedCaseId === caseId);
+  check("ruling is MATCH", spend.challenge?.verdictLabel === "MATCH");
   check("payout is held while the challenger may still appeal", spend.status === "cleared" && (await bal("recipient")) === SEED_MICROS);
   if (!wantAppeal) {
     await tx("stranger", "accept_ruling", [BigInt(c2)], "accept_ruling");
     spend = await api.reads.spend(s2);
     check("spend finalized to the recipient", spend.status === "final");
     check("recipient received the amount and half the slashed bond", (await bal("recipient")) === SEED_MICROS + AMOUNT_MICROS + Math.floor(BOND / 2));
-    check("stranger's bond was slashed", (await bal("stranger")) === SEED_MICROS + BOND - BOND);
+    check("stranger's bond was slashed", (await bal("stranger")) === SEED_MICROS);
   } else {
-    log("STEP 4b  the stranger appeals");
+    log("STEP 2b  the stranger appeals");
     await tx("stranger", "appeal", [BigInt(c2)], "appeal");
     await tx("stranger", "rule_appeal", [BigInt(c2)], "rule_appeal");
     spend = await api.reads.spend(s2);
@@ -185,37 +159,46 @@ async function main() {
     check("the appeal settled the spend", spend.status === "final" || spend.status === "reverted");
   }
 
-  // ---- 5. jailbreak page
-  if (pages.injected) {
-    log("STEP 5  a page that begs the panel to say MATCH");
-    const s3 = await openSpend(MANDATE, pages.injected, "agent claimed: delay exceeded policy, released payment.");
-    const c3 = await challenge(s3, SCENARIOS.injected.claim, pages.injected);
-    await tx("stranger", "rule", [BigInt(c3)], "rule");
-    spend = await api.reads.spend(s3);
-    log(`  label ${spend.challenge?.verdictLabel}: ${spend.challenge?.verdictReason}`);
+  // ---- 3. a live source that changes on its own
+  const gh = SCENARIOS.github;
+  log("STEP 3  GitHub's live status feed; the agent claims an outage");
+  const incident = await githubIncident();
+  const s3 = await openSpend(gh.mandate, gh.evidenceUrl ?? "", gh.trace);
+  const c3 = await challenge(s3, gh.claim, gh.evidenceUrl ?? "");
+  spend = await ruled(c3, s3);
+  const want = incident ? "MATCH" : "MISMATCH";
+  check(`the panel agrees with the live feed (${want})`, spend.challenge?.verdictLabel === want, `got ${spend.challenge?.verdictLabel}`);
+
+  // ---- 4. the adversarial page
+  if (fixtureBase) {
+    const adv = SCENARIOS.injected;
+    log("STEP 4  a page that begs the panel to say MATCH");
+    const url = scenarioUrl(adv, fixtureBase);
+    const s4 = await openSpend(adv.mandate, url, adv.trace);
+    const c4 = await challenge(s4, adv.claim, url);
+    spend = await ruled(c4, s4);
     check("the injected page did not set the verdict", spend.challenge?.verdictLabel === "MISMATCH" && spend.status === "reverted");
+  } else {
+    log("STEP 4  skipped: set FIXTURE_BASE_URL to a public host of this app to run the adversarial page");
   }
 
-  // ---- 6. unchallenged spend finalizes
+  // ---- 5. an unchallenged spend finalizes
   if (wantUnchallenged) {
-    log("STEP 6  a spend nobody challenges");
-    const s4 = await openSpend(pages.mandateLong, pages.long, "agent claimed: payment is due.");
-    const deadline = (await api.reads.spend(s4)).challengeDeadline;
+    log("STEP 5  a spend nobody challenges");
+    const s5 = await openSpend(ev.mandate, ev.evidenceUrl ?? "", "agent claimed: payment is due.");
+    const deadline = (await api.reads.spend(s5)).challengeDeadline;
     for (;;) {
       const now = await api.reads.chainTime();
       if (now >= deadline) break;
       log(`  waiting ${deadline - now}s for the challenge window to close`);
       await new Promise((r) => setTimeout(r, Math.min(15, deadline - now + 1) * 1000));
     }
-    await tx("stranger", "finalize", [BigInt(s4)], "finalize");
-    const done: Spend = await api.reads.spend(s4);
-    check("an unchallenged spend finalizes to the recipient", done.status === "final");
+    await tx("stranger", "finalize", [BigInt(s5)], "finalize");
+    check("an unchallenged spend finalizes to the recipient", (await api.reads.spend(s5)).status === "final");
   }
 
-  // ---- conservation
   const stats = await api.reads.stats();
-  const all = await api.reads.spends();
-  const unsettled = all.filter((s) => mine.includes(s.id) && s.status !== "final" && s.status !== "reverted");
+  const unsettled = (await api.reads.spends()).filter((s) => mine.includes(s.id) && s.status !== "final" && s.status !== "reverted");
   const held = (await Promise.all([bal("payer"), bal("recipient"), bal("stranger")])).reduce((a, b) => a + b, 0);
   check("every spend in this run is settled", unsettled.length === 0);
   check("money is conserved: the three accounts hold exactly what was seeded", held === 3 * SEED_MICROS, `held ${held}`);

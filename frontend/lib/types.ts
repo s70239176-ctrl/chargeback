@@ -73,6 +73,8 @@ export interface CourtStats {
 }
 
 export type Role = "payer" | "recipient" | "stranger";
+/** A demo account, or the visitor's own connected wallet. */
+export type Identity = Role | "wallet";
 
 export type WriteFn =
   | "seed"

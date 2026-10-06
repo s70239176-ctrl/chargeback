@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ROLES, ROLE_LABEL } from "../../lib/accounts.ts";
+import { IDENTITIES, ROLE_LABEL } from "../../lib/accounts.ts";
 import { useCourt } from "../../lib/court.tsx";
 import { shortAddr, usd } from "../../lib/money.ts";
 import { VIEW_META, inView, type View } from "../../lib/views.ts";
@@ -14,7 +14,7 @@ import s from "./shell.module.css";
 
 export function Sidebar() {
   const path = usePathname();
-  const { spends, chainNow, active, setActive, addresses, balances } = useCourt();
+  const { spends, chainNow, active, setActive, addresses, balances, walletConnected } = useCourt();
   const { collapsed, toggleCollapsed } = useShell();
 
   const counts = (view: View) => (spends ?? []).filter((x) => inView(view, x, chainNow)).length;
@@ -82,7 +82,7 @@ export function Sidebar() {
           </div>
         </div>
         <div className={s.roles} role="radiogroup" aria-label="Act as">
-          {ROLES.map((r) => (
+          {IDENTITIES.filter((r) => r !== "wallet" || walletConnected).map((r) => (
             <button
               key={r}
               type="button"
@@ -91,7 +91,7 @@ export function Sidebar() {
               className={`${s.role} ${active === r ? s.roleOn : ""}`}
               onClick={() => setActive(r)}
             >
-              {ROLE_LABEL[r]}
+              {r === "wallet" ? "Wallet" : ROLE_LABEL[r]}
             </button>
           ))}
         </div>

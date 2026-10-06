@@ -10,7 +10,7 @@ import { Icon } from "../ui/Icon.tsx";
 import s from "./shell.module.css";
 
 const DONE_LABEL: Partial<Record<TxEntry["fn"], string>> = {
-  seed: "Mock USDC minted",
+  seed: "Test funds minted",
   open_spend: "Spend locked behind its mandate",
   challenge: "Second look funded",
   rule: "Ruling recorded",

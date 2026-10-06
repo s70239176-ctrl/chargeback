@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { SCENARIOS, SCENARIO_ORDER } from "../../demo/script.ts";
+import { claimFor } from "../../demo/script.ts";
 import { ROLE_LABEL } from "../../lib/accounts.ts";
 import { activeDeadline, countdown, formatClock } from "../../lib/clock.ts";
 import { useCourt } from "../../lib/court.tsx";
@@ -188,8 +188,7 @@ function ActionPanel({ spend }: { spend: Spend }) {
   const ch = spend.challenge;
   const dl = activeDeadline(spend);
   const left = dl !== null ? countdown(dl, chainNow, tick) : null;
-  const slug = SCENARIO_ORDER.map((k) => SCENARIOS[k]).find((x) => spend.evidenceUrl.endsWith(`/${x.slug}`));
-  const [claim, setClaim] = useState(slug?.claim ?? "");
+  const [claim, setClaim] = useState(claimFor(spend.evidenceUrl, spend.mandate));
   const [counter, setCounter] = useState(spend.evidenceUrl);
   const [precedent, setPrecedent] = useState(0);
   const [error, setError] = useState<string | null>(null);

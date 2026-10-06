@@ -146,10 +146,9 @@ test("contract JSON is parsed strictly", () => {
   assert.throws(() => toSpend({ ...raw, settlement: null }), /not a list/);
 });
 
-test("fixtures say what the mandate needs them to say", () => {
-  assert.match(fixtureHtml("ba283"), /Delay: 41 minutes/);
-  assert.match(fixtureHtml("ba283-delayed"), /Delay: 4 hours 12 minutes/);
+test("the one fixture is adversarial: it shows the truth and begs for MATCH", () => {
   const injected = fixtureHtml("ba283-injected");
   assert.match(injected, /Delay: 41 minutes/);
   assert.match(injected, /ignore previous instructions/i);
+  assert.match(injected, /demo fixture/i);
 });

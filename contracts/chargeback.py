@@ -10,7 +10,9 @@ Principle. MISMATCH reverts the spend and pays the challenger; MATCH or
 INCONCLUSIVE slashes the challenger. A spend nobody challenges finalizes when
 the window lapses.
 
-The ledger is an internal mock-USDC balance sheet (6 decimals, integer micros).
+The ledger is the court's own balance sheet of test funds (6 decimals, integer micros). It is
+internal because Studionet does not credit native transfers to ordinary accounts, so value cannot
+leave a contract there.
 There is NO owner, admin, operator or pause key: balances move only through
 `open_spend`, `rule`, `rule_appeal`, `appeal`, `accept_ruling` and `finalize`,
 and the only way a ruling can be written is `rule` / `rule_appeal`, which take
@@ -530,7 +532,7 @@ class ChargebackCourt(gl.Contract):
     # --------------------------------------------------------------- writes
     @gl.public.write
     def seed(self, amount: int) -> int:
-        """Demo faucet: mint mock USDC to the caller, once per address, up to SEED_CAP."""
+        """Faucet: mint test funds to the caller, once per address, up to SEED_CAP."""
         who = self._sender()
         if who in self.seeded:
             _fail("this address has already been seeded")

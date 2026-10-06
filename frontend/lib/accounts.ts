@@ -1,12 +1,15 @@
 import { addressOf, freshPrivateKey } from "./chain.ts";
-import type { Role } from "./types.ts";
+import type { Identity, Role } from "./types.ts";
 
 export const ROLES: readonly Role[] = ["payer", "recipient", "stranger"];
 
-export const ROLE_LABEL: Readonly<Record<Role, string>> = {
+export const IDENTITIES: readonly Identity[] = [...ROLES, "wallet"];
+
+export const ROLE_LABEL: Readonly<Record<Identity, string>> = {
   payer: "Payer",
   recipient: "Recipient",
   stranger: "Stranger",
+  wallet: "Your wallet",
 };
 
 const STORAGE_KEY = "chargeback.demo-accounts.v1";
@@ -21,7 +24,7 @@ function isKeys(value: unknown): value is Keys {
 
 /**
  * Throwaway keys for a gasless hosted dev network, generated in this browser and kept in
- * localStorage. They hold mock USDC only; nothing is ever committed or sent anywhere.
+ * localStorage. They hold test funds only; nothing is ever committed or sent anywhere.
  */
 export function loadOrCreateKeys(): Keys {
   try {
@@ -63,7 +66,7 @@ export function addressesOf(keys: Keys): Record<Role, string> {
   };
 }
 
-export function roleOfAddress(addresses: Readonly<Record<Role, string>>, address: string): Role | null {
+export function roleOfAddress(addresses: Readonly<Record<Identity, string>>, address: string): Identity | null {
   const a = address.toLowerCase();
-  return ROLES.find((r) => addresses[r].toLowerCase() === a) ?? null;
+  return IDENTITIES.find((r) => addresses[r] !== "" && addresses[r].toLowerCase() === a) ?? null;
 }
